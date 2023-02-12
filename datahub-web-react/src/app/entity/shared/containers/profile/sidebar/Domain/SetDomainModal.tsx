@@ -1,15 +1,21 @@
-import React, { useRef, useState } from 'react';
-import { Button, Form, message, Modal, Select, Tag } from 'antd';
+import React, {useEffect, useRef, useState} from 'react';
+import {Button, Form, message, Modal, Select, Tag} from 'antd';
 import styled from 'styled-components';
+import {
+    useGetSearchResultsForMultipleQuery,
+    useGetSearchResultsLazyQuery
+} from '../../../../../../../graphql/search.generated';
+import {Entity, EntityType} from '../../../../../../../types.generated';
+import {useBatchSetDomainMutation} from '../../../../../../../graphql/mutations.generated';
+import {useEntityRegistry} from '../../../../../../useEntityRegistry';
+import {useEnterKeyListener} from '../../../../../../shared/useEnterKeyListener';
+import {DomainLabel} from '../../../../../../shared/DomainLabel';
+import {handleBatchError} from '../../../../utils';
+import {useGetRecommendationsPaginated} from "../../../../../../shared/recommendation";
 
-import { useGetSearchResultsLazyQuery } from '../../../../../../../graphql/search.generated';
-import { Entity, EntityType } from '../../../../../../../types.generated';
-import { useBatchSetDomainMutation } from '../../../../../../../graphql/mutations.generated';
-import { useEntityRegistry } from '../../../../../../useEntityRegistry';
-import { useEnterKeyListener } from '../../../../../../shared/useEnterKeyListener';
-import { useGetRecommendations } from '../../../../../../shared/recommendation';
-import { DomainLabel } from '../../../../../../shared/DomainLabel';
-import { handleBatchError } from '../../../../utils';
+const SelectInput = styled(Select)`
+    width: 480px;
+`;
 
 type Props = {
     urns: string[];
@@ -50,14 +56,43 @@ export const SetDomainModal = ({ urns, onCloseModal, refetch, defaultValue, onOk
     const domainSearchResults =
         domainSearchData?.search?.searchResults?.map((searchResult) => searchResult.entity) || [];
     const [batchSetDomainMutation] = useBatchSetDomainMutation();
-    const [recommendedData] = useGetRecommendations([EntityType.Domain]);
     const inputEl = useRef(null);
+    const [recommendedDataDisplayed, setRecommendedDataDisplayed] = useState<any>([]);
+    const [recommendedHasMore, setRecommendedHasMore] = useState(true);
+    const [recommendedPageNumber, setRecommendedPageNumber] = useState(0);
+    const recommendedPageSize: number = 10;
+    const {isRecommendedLoading, recommendedData, recommendedDataEntities} = useGetRecommendationsPaginated([EntityType.Domain], recommendedPageNumber, recommendedPageSize);
 
     const onModalClose = () => {
         setInputValue('');
         setSelectedDomain(undefined);
         onCloseModal();
     };
+
+    // Renders a search result in the select dropdown.
+    const renderSearchResult = (entity: Entity) => {
+        const displayName = entityRegistry.getDisplayName(entity.type, entity);
+        return (
+            <Select.Option value={entity.urn} key={entity.urn}>
+                <DomainLabel name={displayName} />
+            </Select.Option>
+        );
+    };
+
+    const domainResult = !inputValue || inputValue.length === 0 ? recommendedDataDisplayed : domainSearchResults;
+
+    useEffect(() => {
+        if (!isRecommendedLoading && recommendedHasMore) {
+            setRecommendedDataDisplayed(prevData => [...prevData, ...recommendedDataEntities]);
+            if (recommendedDataEntities.length < recommendedPageSize) {
+                setRecommendedHasMore(false);
+            }
+        }
+    }, [recommendedData]);
+
+    const domainSearchOptions = domainResult?.map((result) => {
+        return renderSearchResult(result);
+    });
 
     const handleSearch = (text: string) => {
         domainSearch({
@@ -71,22 +106,6 @@ export const SetDomainModal = ({ urns, onCloseModal, refetch, defaultValue, onOk
             },
         });
     };
-
-    // Renders a search result in the select dropdown.
-    const renderSearchResult = (entity: Entity) => {
-        const displayName = entityRegistry.getDisplayName(entity.type, entity);
-        return (
-            <Select.Option value={entity.urn} key={entity.urn}>
-                <DomainLabel name={displayName} />
-            </Select.Option>
-        );
-    };
-
-    const domainResult = !inputValue || inputValue.length === 0 ? recommendedData : domainSearchResults;
-
-    const domainSearchOptions = domainResult?.map((result) => {
-        return renderSearchResult(result);
-    });
 
     const onSelectDomain = (newUrn: string) => {
         if (inputEl && inputEl.current) {
@@ -166,6 +185,18 @@ export const SetDomainModal = ({ urns, onCloseModal, refetch, defaultValue, onOk
         );
     };
 
+    const handleInfiniteOnLoad = (e) => {
+        e.persist();
+        if (
+            !isRecommendedLoading &&
+            e.target.scrollTop + e.target.offsetHeight + 30 >= e.target.scrollHeight &&
+            recommendedHasMore
+        ) {
+            e.target.scrollTo(0, e.target.scrollHeight);
+            setRecommendedPageNumber(recommendedPageNumber + 1);
+        }
+    };
+
     function handleBlur() {
         setInputValue('');
     }
@@ -188,7 +219,7 @@ export const SetDomainModal = ({ urns, onCloseModal, refetch, defaultValue, onOk
         >
             <Form component={false}>
                 <Form.Item>
-                    <Select
+                    <SelectInput
                         autoFocus
                         defaultOpen
                         filterOption={false}
@@ -198,6 +229,8 @@ export const SetDomainModal = ({ urns, onCloseModal, refetch, defaultValue, onOk
                         placeholder="Search for Domains..."
                         onSelect={(domainUrn: any) => onSelectDomain(domainUrn)}
                         onDeselect={onDeselectDomain}
+                        onPopupScroll={handleInfiniteOnLoad}
+                        dropdownMatchSelectWidth={true}
                         onSearch={(value: string) => {
                             // eslint-disable-next-line react/prop-types
                             handleSearch(value.trim());
@@ -210,7 +243,7 @@ export const SetDomainModal = ({ urns, onCloseModal, refetch, defaultValue, onOk
                         onBlur={handleBlur}
                     >
                         {domainSearchOptions}
-                    </Select>
+                    </SelectInput>
                 </Form.Item>
             </Form>
         </Modal>

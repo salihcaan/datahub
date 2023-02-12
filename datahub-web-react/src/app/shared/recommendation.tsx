@@ -16,3 +16,19 @@ export const useGetRecommendations = (types: Array<EntityType>) => {
     const recommendedData = data?.searchAcrossEntities?.searchResults?.map((searchResult) => searchResult.entity) || [];
     return [recommendedData];
 };
+
+export const useGetRecommendationsPaginated = (types: Array<EntityType>, page: number, count: number = 5) => {
+    const { loading, data } = useGetSearchResultsForMultipleQuery({
+        variables: {
+            input: {
+                types,
+                query: '*',
+                start: count * page,
+                count: count,
+            },
+        },
+    });
+
+    const recommendedDataEntities = data?.searchAcrossEntities?.searchResults?.map((searchResult) => searchResult.entity) || [];
+    return { isRecommendedLoading: loading, recommendedData: data, recommendedDataEntities };
+};
